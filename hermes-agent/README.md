@@ -88,6 +88,26 @@ sbx run --kit ./hermes-agent/ hermes-agent
 Once inside the agent, use `hermes model` to choose a provider and model, then
 start chatting.
 
+## Keeping state on a volume
+
+Hermes keeps sessions, memory and skills in `HERMES_HOME`. By default that is
+`~/.hermes`, which also holds the Hermes install, so a volume can't be mounted
+there. To keep state on a separate volume, mount it at `/data` and set
+`HERMES_HOME=/data` and `HERMES_INIT_VOLUME=1`.
+
+On each start, a root startup hook hands an empty, root-owned `/data` to the
+agent user. It refuses a volume that already holds data owned by someone else,
+and it does nothing unless `HERMES_INIT_VOLUME=1`.
+
+The hook's tests run in a disposable container:
+
+```console
+docker run --rm -v "$PWD/hermes-agent:/kit:ro" --tmpfs /data python:3.12-slim \
+  python -m unittest /kit/testdata/test_volume_init.py
+docker run --rm -v "$PWD/hermes-agent:/kit:ro" python:3.12-slim \
+  python -m unittest /kit/testdata/test_volume_paths.py
+```
+
 ## How auth works
 
 Each entry in the kit's `credentials:` list maps a provider to a domain and the
