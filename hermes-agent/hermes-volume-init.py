@@ -1,7 +1,26 @@
 #!/usr/bin/env python3
 import fcntl
 import os
+import shutil
 import sys
+
+SEED_SOURCE = "/home/agent/.hermes"
+SEED_FILES = ("config.yaml", ".env")
+
+
+def seed_missing_files():
+    # Copies through a temporary name so an interrupted copy is redone, never kept half-written.
+    for name in SEED_FILES:
+        source = os.path.join(SEED_SOURCE, name)
+        if os.path.lexists(name) or not os.path.isfile(source):
+            continue
+        partial = f".{name}.seeding"
+        shutil.copy2(source, partial)
+        try:
+            os.link(partial, name)
+        except FileExistsError:
+            pass
+        os.unlink(partial)
 
 
 def initialize():
@@ -45,6 +64,7 @@ def initialize():
         os.setuid(1000)
         if not os.access(".", os.W_OK | os.X_OK):
             raise RuntimeError("/data is not writable by UID 1000")
+        seed_missing_files()
     finally:
         os.close(fd)
 

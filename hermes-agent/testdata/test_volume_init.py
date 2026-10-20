@@ -7,6 +7,8 @@ import unittest
 
 SCRIPT = "/kit/hermes-volume-init.py"
 DATA = Path("/data")
+SEED = Path("/home/agent/.hermes")
+SEEDS = {"config.yaml": ("model: image\n", 0o644), ".env": ("# template\n", 0o600)}
 
 
 class VolumeInitTest(unittest.TestCase):
@@ -23,6 +25,12 @@ class VolumeInitTest(unittest.TestCase):
                 shutil.rmtree(entry)
             else:
                 entry.unlink()
+        shutil.rmtree(SEED, ignore_errors=True)
+        SEED.mkdir(parents=True)
+        for name, (content, mode) in SEEDS.items():
+            (SEED / name).write_text(content)
+            os.chmod(SEED / name, mode)
+            os.chown(SEED / name, 1000, 1000)
 
     def run_hook(self, enabled="1", home="/data", user=0):
         return subprocess.run(
@@ -38,6 +46,39 @@ class VolumeInitTest(unittest.TestCase):
         self.assertEqual(DATA.stat().st_mode & 0o777, 0o700)
         subprocess.run(["sh", "-c", "echo state > /data/state"],
                        user=1000, group=1000, extra_groups=[], check=True)
+
+    def test_fresh_volume_gets_image_config(self):
+        self.assertEqual(self.run_hook().returncode, 0)
+        for name, (content, mode) in SEEDS.items():
+            with self.subTest(name=name):
+                seeded = (DATA / name).stat()
+                self.assertEqual((DATA / name).read_text(), content)
+                self.assertEqual((seeded.st_uid, seeded.st_mode & 0o777), (1000, mode))
+        self.assertEqual(sorted(p.name for p in DATA.iterdir()), sorted(SEEDS))
+
+    def test_seeding_keeps_volume_config(self):
+        self.assertEqual(self.run_hook().returncode, 0)
+        (DATA / "config.yaml").write_text("model: mine\n")
+        (DATA / ".env").unlink()
+        self.assertEqual(self.run_hook().returncode, 0)
+        self.assertEqual((DATA / "config.yaml").read_text(), "model: mine\n")
+        self.assertEqual((DATA / ".env").read_text(), SEEDS[".env"][0])
+
+    def test_seeding_finishes_interrupted_initialization(self):
+        os.chown(DATA, 1000, 1000)
+        os.chmod(DATA, 0o700)
+        partial = DATA / ".config.yaml.seeding"
+        partial.write_text("model: half")
+        os.chown(partial, 1000, 1000)
+        self.assertEqual(self.run_hook().returncode, 0)
+        self.assertEqual((DATA / "config.yaml").read_text(), SEEDS["config.yaml"][0])
+        self.assertFalse(partial.exists())
+
+    def test_missing_image_config_is_skipped(self):
+        shutil.rmtree(SEED)
+        result = self.run_hook()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(list(DATA.iterdir()), [])
 
     def test_disabled_does_not_change_ownership(self):
         for enabled in ("", "0"):
