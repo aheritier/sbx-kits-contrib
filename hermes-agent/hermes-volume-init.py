@@ -1,11 +1,33 @@
 #!/usr/bin/env python3
+import contextlib
 import fcntl
 import os
 import shutil
 import sys
 
+# Under ~/.hermes so Hermes keeps its install root there; a home outside it becomes its own root.
+STATE_DIR = "/home/agent/.hermes/profiles/persistent"
 SEED_SOURCE = "/home/agent/.hermes"
 SEED_FILES = ("config.yaml", ".env")
+FLAGS = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
+
+
+def open_state_dir():
+    # Opens one component at a time with O_NOFOLLOW, since the agent owns the path's ancestors.
+    *ancestors, leaf = STATE_DIR.strip("/").split("/")
+    parent = os.open("/", FLAGS)
+    try:
+        for name in ancestors:
+            child = os.open(name, FLAGS, dir_fd=parent)
+            os.close(parent)
+            parent = child
+        fd = os.open(leaf, FLAGS, dir_fd=parent)
+        if os.fstat(fd).st_dev == os.fstat(parent).st_dev:
+            os.close(fd)
+            raise RuntimeError(f"{STATE_DIR} must be a separately mounted filesystem")
+        return fd
+    finally:
+        os.close(parent)
 
 
 def seed_missing_files():
@@ -15,7 +37,12 @@ def seed_missing_files():
         if os.path.lexists(name) or not os.path.isfile(source):
             continue
         partial = f".{name}.seeding"
-        shutil.copy2(source, partial)
+        # Exclusive create, so a leftover link at the temporary name is replaced, never written through.
+        with contextlib.suppress(FileNotFoundError):
+            os.unlink(partial)
+        with open(source, "rb") as src, open(partial, "xb") as dst:
+            shutil.copyfileobj(src, dst)
+        shutil.copystat(source, partial)
         try:
             os.link(partial, name)
         except FileExistsError:
@@ -27,23 +54,20 @@ def initialize():
     enabled = os.environ.get("HERMES_INIT_VOLUME", "")
     if enabled in ("", "0"):
         return
-    if enabled != "1" or os.environ.get("HERMES_HOME") != "/data":
-        raise RuntimeError("volume initialization requires HERMES_INIT_VOLUME=1 and HERMES_HOME=/data")
+    if enabled != "1" or os.environ.get("HERMES_HOME") != STATE_DIR:
+        raise RuntimeError(f"volume initialization requires HERMES_INIT_VOLUME=1 and HERMES_HOME={STATE_DIR}")
     if os.geteuid() != 0:
         raise RuntimeError("volume initialization must run as root")
 
-    flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
-    fd = os.open("/data", flags)
+    fd = open_state_dir()
     try:
         fcntl.flock(fd, fcntl.LOCK_EX)
         current = os.fstat(fd)
-        if current.st_dev == os.stat("/").st_dev or not os.path.ismount("/data"):
-            raise RuntimeError("/data must be a separately mounted filesystem")
         owner = (current.st_uid, current.st_gid)
         if owner == (0, 0):
             entries = os.listdir(fd)
             if entries == ["lost+found"]:
-                recovery = os.open("lost+found", flags, dir_fd=fd)
+                recovery = os.open("lost+found", FLAGS, dir_fd=fd)
                 try:
                     info = os.fstat(recovery)
                     if (info.st_uid, info.st_gid) != (0, 0) or os.listdir(recovery):
@@ -63,7 +87,7 @@ def initialize():
         os.setgid(1000)
         os.setuid(1000)
         if not os.access(".", os.W_OK | os.X_OK):
-            raise RuntimeError("/data is not writable by UID 1000")
+            raise RuntimeError(f"{STATE_DIR} is not writable by UID 1000")
         seed_missing_files()
     finally:
         os.close(fd)

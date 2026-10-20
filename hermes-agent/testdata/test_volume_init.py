@@ -6,33 +6,31 @@ import unittest
 
 
 SCRIPT = "/kit/hermes-volume-init.py"
-DATA = Path("/data")
+STATE = Path("/home/agent/.hermes/profiles/persistent")
 SEED = Path("/home/agent/.hermes")
 SEEDS = {"config.yaml": ("model: image\n", 0o644), ".env": ("# template\n", 0o600)}
 
 
 class VolumeInitTest(unittest.TestCase):
     def setUp(self):
-        # This suite runs only in a disposable container with a private /data tmpfs.
-        self.assertTrue(DATA.is_mount())
+        # This suite runs only in a disposable container with a private tmpfs at STATE.
+        self.assertTrue(STATE.is_mount())
         self.assertTrue(Path("/.dockerenv").exists())
-        self.assertTrue(any(line.split()[1:3] == ["/data", "tmpfs"]
+        self.assertTrue(any(line.split()[1:3] == [str(STATE), "tmpfs"]
                             for line in Path("/proc/mounts").read_text().splitlines()))
-        os.chown(DATA, 0, 0)
-        os.chmod(DATA, 0o755)
-        for entry in DATA.iterdir():
+        os.chown(STATE, 0, 0)
+        os.chmod(STATE, 0o755)
+        for entry in STATE.iterdir():
             if entry.is_dir() and not entry.is_symlink():
                 shutil.rmtree(entry)
             else:
                 entry.unlink()
-        shutil.rmtree(SEED, ignore_errors=True)
-        SEED.mkdir(parents=True)
         for name, (content, mode) in SEEDS.items():
             (SEED / name).write_text(content)
             os.chmod(SEED / name, mode)
             os.chown(SEED / name, 1000, 1000)
 
-    def run_hook(self, enabled="1", home="/data", user=0):
+    def run_hook(self, enabled="1", home=str(STATE), user=0):
         return subprocess.run(
             ["python3", SCRIPT],
             env={**os.environ, "HERMES_INIT_VOLUME": enabled, "HERMES_HOME": home},
@@ -42,72 +40,83 @@ class VolumeInitTest(unittest.TestCase):
     def test_fresh_volume_becomes_writable(self):
         result = self.run_hook()
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual((DATA.stat().st_uid, DATA.stat().st_gid), (1000, 1000))
-        self.assertEqual(DATA.stat().st_mode & 0o777, 0o700)
-        subprocess.run(["sh", "-c", "echo state > /data/state"],
+        self.assertEqual((STATE.stat().st_uid, STATE.stat().st_gid), (1000, 1000))
+        self.assertEqual(STATE.stat().st_mode & 0o777, 0o700)
+        subprocess.run(["sh", "-c", f"echo state > {STATE}/state"],
                        user=1000, group=1000, extra_groups=[], check=True)
 
     def test_fresh_volume_gets_image_config(self):
         self.assertEqual(self.run_hook().returncode, 0)
         for name, (content, mode) in SEEDS.items():
             with self.subTest(name=name):
-                seeded = (DATA / name).stat()
-                self.assertEqual((DATA / name).read_text(), content)
+                seeded = (STATE / name).stat()
+                self.assertEqual((STATE / name).read_text(), content)
                 self.assertEqual((seeded.st_uid, seeded.st_mode & 0o777), (1000, mode))
-        self.assertEqual(sorted(p.name for p in DATA.iterdir()), sorted(SEEDS))
+        self.assertEqual(sorted(p.name for p in STATE.iterdir()), sorted(SEEDS))
 
     def test_seeding_keeps_volume_config(self):
         self.assertEqual(self.run_hook().returncode, 0)
-        (DATA / "config.yaml").write_text("model: mine\n")
-        (DATA / ".env").unlink()
+        (STATE / "config.yaml").write_text("model: mine\n")
+        (STATE / ".env").unlink()
         self.assertEqual(self.run_hook().returncode, 0)
-        self.assertEqual((DATA / "config.yaml").read_text(), "model: mine\n")
-        self.assertEqual((DATA / ".env").read_text(), SEEDS[".env"][0])
+        self.assertEqual((STATE / "config.yaml").read_text(), "model: mine\n")
+        self.assertEqual((STATE / ".env").read_text(), SEEDS[".env"][0])
 
     def test_seeding_finishes_interrupted_initialization(self):
-        os.chown(DATA, 1000, 1000)
-        os.chmod(DATA, 0o700)
-        partial = DATA / ".config.yaml.seeding"
+        os.chown(STATE, 1000, 1000)
+        os.chmod(STATE, 0o700)
+        partial = STATE / ".config.yaml.seeding"
         partial.write_text("model: half")
         os.chown(partial, 1000, 1000)
         self.assertEqual(self.run_hook().returncode, 0)
-        self.assertEqual((DATA / "config.yaml").read_text(), SEEDS["config.yaml"][0])
+        self.assertEqual((STATE / "config.yaml").read_text(), SEEDS["config.yaml"][0])
         self.assertFalse(partial.exists())
 
+    def test_seeding_does_not_write_through_a_linked_temporary_name(self):
+        os.chown(STATE, 1000, 1000)
+        os.chmod(STATE, 0o700)
+        (STATE / "state").write_text("keep")
+        os.chown(STATE / "state", 1000, 1000)
+        (STATE / ".config.yaml.seeding").symlink_to(STATE / "state")
+        self.assertEqual(self.run_hook().returncode, 0)
+        self.assertEqual((STATE / "state").read_text(), "keep")
+        self.assertEqual((STATE / "config.yaml").read_text(), SEEDS["config.yaml"][0])
+
     def test_missing_image_config_is_skipped(self):
-        shutil.rmtree(SEED)
+        for name in SEEDS:
+            (SEED / name).unlink()
         result = self.run_hook()
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(list(DATA.iterdir()), [])
+        self.assertEqual(list(STATE.iterdir()), [])
 
     def test_disabled_does_not_change_ownership(self):
         for enabled in ("", "0"):
             with self.subTest(enabled=enabled):
                 result = self.run_hook(enabled=enabled, home="/tmp", user=1000)
                 self.assertEqual(result.returncode, 0, result.stderr)
-                self.assertEqual(DATA.stat().st_uid, 0)
-                self.assertEqual(DATA.stat().st_mode & 0o777, 0o755)
+                self.assertEqual(STATE.stat().st_uid, 0)
+                self.assertEqual(STATE.stat().st_mode & 0o777, 0o755)
 
     def test_enabled_hook_requires_root(self):
         result = self.run_hook(user=1000)
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("must run as root", result.stderr)
-        self.assertEqual(DATA.stat().st_uid, 0)
+        self.assertEqual(STATE.stat().st_uid, 0)
 
     def test_refuses_wrong_home_and_invalid_opt_in(self):
-        for enabled, home in [("1", "/tmp"), ("true", "/data")]:
+        for enabled, home in [("1", "/tmp"), ("1", str(SEED)), ("true", str(STATE))]:
             with self.subTest(enabled=enabled, home=home):
                 self.assertNotEqual(self.run_hook(enabled, home).returncode, 0)
-                self.assertEqual(DATA.stat().st_uid, 0)
+                self.assertEqual(STATE.stat().st_uid, 0)
 
     def test_refuses_existing_root_owned_content(self):
-        (DATA / "state").write_text("keep")
+        (STATE / "state").write_text("keep")
         self.assertNotEqual(self.run_hook().returncode, 0)
-        self.assertEqual(DATA.stat().st_uid, 0)
-        self.assertEqual((DATA / "state").read_text(), "keep")
+        self.assertEqual(STATE.stat().st_uid, 0)
+        self.assertEqual((STATE / "state").read_text(), "keep")
 
     def test_lost_found_is_not_changed(self):
-        recovery = DATA / "lost+found"
+        recovery = STATE / "lost+found"
         recovery.mkdir(mode=0o700)
         result = self.run_hook()
         self.assertEqual(result.returncode, 0, result.stderr)
@@ -115,59 +124,59 @@ class VolumeInitTest(unittest.TestCase):
         self.assertEqual(recovery.stat().st_mode & 0o777, 0o700)
 
     def test_refuses_incompatible_recovery_owner(self):
-        recovery = DATA / "lost+found"
+        recovery = STATE / "lost+found"
         recovery.mkdir()
         os.chown(recovery, 1000, 1000)
         result = self.run_hook()
         self.assertNotEqual(result.returncode, 0)
-        self.assertEqual(DATA.stat().st_uid, 0)
+        self.assertEqual(STATE.stat().st_uid, 0)
         self.assertEqual(recovery.stat().st_uid, 1000)
 
     def test_refuses_nonempty_or_symlink_recovery_directory(self):
-        recovery = DATA / "lost+found"
+        recovery = STATE / "lost+found"
         recovery.mkdir()
         (recovery / "recovered").write_text("keep")
         self.assertNotEqual(self.run_hook().returncode, 0)
         shutil.rmtree(recovery)
         recovery.symlink_to("/tmp", target_is_directory=True)
         self.assertNotEqual(self.run_hook().returncode, 0)
-        self.assertEqual(DATA.stat().st_uid, 0)
+        self.assertEqual(STATE.stat().st_uid, 0)
 
     def test_retries_preserve_existing_content_and_children(self):
         self.assertEqual(self.run_hook().returncode, 0)
-        (DATA / "state").write_text("keep")
+        (STATE / "state").write_text("keep")
         result = self.run_hook()
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual((DATA / "state").read_text(), "keep")
-        self.assertEqual((DATA / "state").stat().st_uid, 0)
+        self.assertEqual((STATE / "state").read_text(), "keep")
+        self.assertEqual((STATE / "state").stat().st_uid, 0)
 
     def test_retry_after_private_mode_before_ownership_transfer(self):
-        os.chmod(DATA, 0o700)
+        os.chmod(STATE, 0o700)
         result = self.run_hook()
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(DATA.stat().st_uid, 1000)
+        self.assertEqual(STATE.stat().st_uid, 1000)
 
     def test_incompatible_owner_is_not_repaired(self):
         for owner in ((2000, 2000), (1000, 0), (0, 1000)):
             with self.subTest(owner=owner):
-                os.chown(DATA, *owner)
+                os.chown(STATE, *owner)
                 self.assertNotEqual(self.run_hook().returncode, 0)
-                self.assertEqual((DATA.stat().st_uid, DATA.stat().st_gid), owner)
+                self.assertEqual((STATE.stat().st_uid, STATE.stat().st_gid), owner)
 
     def test_owned_but_unwritable_volume_is_not_repaired(self):
-        os.chown(DATA, 1000, 1000)
-        os.chmod(DATA, 0o500)
+        os.chown(STATE, 1000, 1000)
+        os.chmod(STATE, 0o500)
         self.assertNotEqual(self.run_hook().returncode, 0)
-        self.assertEqual(DATA.stat().st_mode & 0o777, 0o500)
+        self.assertEqual(STATE.stat().st_mode & 0o777, 0o500)
 
     def test_duplicate_initialization(self):
         self.initialize_concurrently()
-        self.assertEqual(DATA.stat().st_uid, 1000)
+        self.assertEqual(STATE.stat().st_uid, 1000)
 
     def initialize_concurrently(self):
         children = [subprocess.Popen(
             ["python3", SCRIPT],
-            env={**os.environ, "HERMES_INIT_VOLUME": "1", "HERMES_HOME": "/data"},
+            env={**os.environ, "HERMES_INIT_VOLUME": "1", "HERMES_HOME": str(STATE)},
             stdout=subprocess.PIPE, stderr=subprocess.PIPE,
         ) for _ in range(8)]
         for child in children:
@@ -176,8 +185,8 @@ class VolumeInitTest(unittest.TestCase):
 
     def test_concurrent_retries_preserve_agent_state(self):
         self.assertEqual(self.run_hook().returncode, 0)
-        state = DATA / "state"
-        subprocess.run(["sh", "-c", "echo state > /data/state"],
+        state = STATE / "state"
+        subprocess.run(["sh", "-c", f"echo state > {state}"],
                        user=1000, group=1000, extra_groups=[], check=True)
         before = state.stat()
         self.initialize_concurrently()

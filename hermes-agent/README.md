@@ -92,20 +92,25 @@ start chatting.
 
 Hermes keeps sessions, memory and skills in `HERMES_HOME`. By default that is
 `~/.hermes`, which also holds the Hermes install, so a volume can't be mounted
-there. To keep state on a separate volume, mount it at `/data` and set
-`HERMES_HOME=/data` and `HERMES_INIT_VOLUME=1`.
+there. A `HERMES_HOME` outside `~/.hermes` doesn't work either, because Hermes
+then looks for its install under that directory. To keep state on a separate
+volume, mount it at `/home/agent/.hermes/profiles/persistent` and set
+`HERMES_HOME` to that path and `HERMES_INIT_VOLUME=1`. Hermes treats the
+volume as a profile named `persistent`.
 
-On each start, a root startup hook hands an empty, root-owned `/data` to the
-agent user. It refuses a volume that already holds data owned by someone else,
-and it does nothing unless `HERMES_INIT_VOLUME=1`.
+On each start, a root startup hook hands an empty, root-owned volume to the
+agent user and copies the image's `config.yaml` and `.env` into it when they
+are missing. It refuses a volume that already holds data owned by someone
+else, and it does nothing unless `HERMES_INIT_VOLUME=1`.
 
 The hook's tests run in a disposable container:
 
 ```console
-docker run --rm -v "$PWD/hermes-agent:/kit:ro" --tmpfs /data python:3.12-slim \
+docker run --rm -v "$PWD/hermes-agent:/kit:ro" \
+  --tmpfs /home/agent/.hermes/profiles/persistent python:3.12-slim \
   python -m unittest /kit/testdata/test_volume_init.py
-docker run --rm -v "$PWD/hermes-agent:/kit:ro" python:3.12-slim \
-  python -m unittest /kit/testdata/test_volume_paths.py
+docker run --rm -v "$PWD/hermes-agent:/kit:ro" --tmpfs /decoy/persistent \
+  python:3.12-slim python -m unittest /kit/testdata/test_volume_paths.py
 ```
 
 ## How auth works
