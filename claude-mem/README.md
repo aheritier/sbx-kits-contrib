@@ -85,6 +85,9 @@ sbx ports <sandbox> --publish 37700/tcp
   ONNX model (~80MB, allow-listed S3 host).
 - The installer auto-installs Bun and uv if missing (bun.sh / astral.sh
   are allow-listed for install time).
+- `cmem.ai` is allow-listed because the installer ends by requesting an
+  optional sign-in link from it. That request carries the sandbox hostname
+  and upstream's numbers-only usage summary. The kit never signs in.
 
 ## Debugging
 
