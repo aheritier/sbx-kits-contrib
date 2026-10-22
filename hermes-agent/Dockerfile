@@ -52,7 +52,16 @@ WORKDIR /home/agent/workspace
 #
 # `hermes --version` is the build-time gate: a broken release fails the
 # build instead of shipping a non-starting agent.
+# Emulated amd64 builds on Apple Silicon fail install.sh's `tar` extract of uv, so the first step stages the
+# same pinned, checksum-verified uv with Python, in this layer so pm can later rename its directory.
 RUN set -eu; \
+    if [ "$(uname -m)" = x86_64 ]; then \
+        dir="$HOME/.hermes/tools/uv-0.12.3-linux-x64"; mkdir -p "$dir"; \
+        curl -fsSL https://github.com/astral-sh/uv/releases/download/0.12.3/uv-x86_64-unknown-linux-gnu.tar.gz -o /tmp/uv.tar.gz; \
+        echo "600cf9a742aca00d292673b16b5acffaa7b8c269a364ad0c2e79498dcb1fe101  /tmp/uv.tar.gz" | sha256sum -c -; \
+        python3 -c 'import sys, tarfile, os, shutil; t = tarfile.open("/tmp/uv.tar.gz"); [shutil.copyfileobj(t.extractfile(m), open(os.path.join(sys.argv[1], os.path.basename(m.name)), "wb")) for m in t.getmembers() if m.isfile()]' "$dir"; \
+        chmod +x "$dir/uv" "$dir/uvx"; rm -f /tmp/uv.tar.gz; \
+    fi; \
     tag="${HERMES_VERSION}"; \
     if [ -z "$tag" ]; then \
         tag="$(curl -fsSI -o /dev/null -w '%{redirect_url}' https://github.com/NousResearch/hermes-agent/releases/latest | sed -n 's#.*/releases/tag/##p')"; \
