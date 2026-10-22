@@ -13,9 +13,9 @@ not need one). On top of that:
   from a git checkout of upstream's latest tagged release (rebuilt nightly)
   via upstream's own `scripts/install.sh`, with the browser-tool
   (Playwright/Chromium) and computer-use (macOS-only) installers skipped
-- the `anthropic` extra added on top, so the native Anthropic SDK — the
-  provider this kit's credentials wire up — is present without a
-  runtime PyPI install
+- the `anthropic` and `telegram` extras added on top, so the native
+  Anthropic SDK (the provider this kit's credentials wire up) and the
+  Telegram gateway's SDK are present without a runtime PyPI install
 - `~/.local/bin/hermes`, the command upstream's installer produces
 - `/usr/local/bin/hermes-start`, a copy of the kit's entrypoint script so
   the image also runs standalone outside `sbx`

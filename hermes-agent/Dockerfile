@@ -45,10 +45,10 @@ WORKDIR /home/agent/workspace
 # --skip-browser/--skip-computer-use drop Playwright and the macOS-only
 # cua-driver fetch -- neither is part of this kit's supported surface.
 #
-# install.sh always installs its `all` extra; `anthropic` is added afterward
-# through Hermes' supported package manager because this kit wires Anthropic up
-# as a first-class provider, so it can't be left to upstream's lazy-install-at-
-# runtime path.
+# install.sh always installs its `all` extra; `anthropic` and `telegram` are
+# added afterward through Hermes' supported package manager because this kit
+# wires Anthropic up as a first-class provider and ships the Telegram gateway,
+# so neither can be left to upstream's lazy-install-at-runtime path.
 #
 # `hermes --version` is the build-time gate: a broken release fails the
 # build instead of shipping a non-starting agent.
@@ -65,11 +65,11 @@ RUN set -eu; \
     chmod +x /tmp/hermes-install.sh; \
     /tmp/hermes-install.sh --branch "$tag" --skip-setup --skip-browser --skip-computer-use --non-interactive; \
     rm -f /tmp/hermes-install.sh; \
-    "$HOME/.local/bin/hermes" pm install --extra anthropic; \
+    "$HOME/.local/bin/hermes" pm install --extra anthropic --extra telegram; \
     "$HOME/.local/bin/hermes" --version
 
-# Everything outside the `all` + `anthropic` extras baked above -- other
-# providers, gateways, TTS/STT, search backends, memory providers -- is a
+# Everything outside the `all`, `anthropic` and `telegram` extras baked above --
+# other providers, gateways, TTS/STT, search backends, memory providers -- is a
 # tools/lazy_deps.py entry Hermes would otherwise pip-install from PyPI at
 # first use. HERMES_DISABLE_LAZY_INSTALLS is upstream's own switch for
 # this; unlike upstream's own Docker image, this one sets no

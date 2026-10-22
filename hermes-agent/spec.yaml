@@ -93,6 +93,9 @@ permissions:
       # real run under deny-all never reached portal.nousresearch.com, so it
       # is dropped rather than kept on faith.
       - hermes-agent.nousresearch.com
+      # Telegram Bot API, for `hermes gateway run`. Not a credential below: the
+      # bot token rides in the URL path, which the proxy cannot inject (README).
+      - api.telegram.org
 credentials:
   - service: anthropic
     apiKey:
@@ -181,6 +184,9 @@ credentials:
 environment:
   variables:
     HERMES_HOME: /home/agent/.hermes
+    # Keeps Telegram on api.telegram.org by name, skipping the DNS-over-HTTPS lookup and
+    # IP-literal fallback that the hostname allowlist above would refuse.
+    HERMES_TELEGRAM_DISABLE_FALLBACK_IPS: "1"
 setup:
   startup:
     # Root runs only root-owned code: the image's helper under an isolated system

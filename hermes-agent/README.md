@@ -19,11 +19,12 @@ find it here.
 ## Supported providers, and what is not baked in
 
 Only Anthropic, OpenAI, and OpenRouter are installed and reachable — see
-"Setup" and "How auth works" below. Hermes supports a much wider set of model
+"Setup" and "How auth works" below — plus the Telegram gateway, described
+under "Telegram". Hermes supports a much wider set of model
 providers, search backends, messaging-platform gateways, and TTS/STT engines,
 and normally installs each one's SDK from PyPI the first time you use it. This
 image disables that: it is sealed (no writable install target), so an attempt
-to use anything outside the three supported providers fails immediately with
+to use anything outside these fails immediately with
 `FeatureUnavailable` naming the exact `pip install` command Hermes would have
 run, rather than hanging or failing opaquely against a network policy that
 does not allow PyPI. That message is expected — it means the feature genuinely
@@ -87,6 +88,31 @@ sbx run --kit ./hermes-agent/ hermes-agent
 
 Once inside the agent, use `hermes model` to choose a provider and model, then
 start chatting.
+
+## Telegram
+
+The image includes Hermes' Telegram gateway, but the kit never starts it, so
+a sandbox without a bot token behaves as before.
+
+The bot token is the one credential this kit keeps inside the sandbox.
+Telegram's Bot API carries it in the URL path (`api.telegram.org/bot<token>/…`),
+and the sandbox proxy can only inject headers. Put it in the `.env` of the
+Hermes home that should answer the bot, with mode 0600: `~/.hermes/.env`, or
+the profile's `.env` when state lives on a volume. Add the numeric Telegram
+user IDs allowed to talk to the bot. With that allowlist set, Hermes ignores
+everyone else.
+
+```console
+TELEGRAM_BOT_TOKEN=<token from @BotFather>
+TELEGRAM_ALLOWED_USERS=<your numeric Telegram user ID>
+```
+
+Then run `hermes gateway run` from the default home. If the sandbox was
+created with a profile `HERMES_HOME`, set `HERMES_HOME=/home/agent/.hermes`
+for that command. Hermes runs one gateway per machine, and it serves the bots
+of every profile under `~/.hermes/profiles/`. It long-polls `api.telegram.org`,
+which the kit's network policy allows. Anything the agent runs can read the
+token, so give the sandbox a bot of its own.
 
 ## Keeping state on a volume
 
