@@ -50,6 +50,9 @@ capabilities:
           - files.pythonhosted.org
           # Embedding model, also granted at runtime — see the note above.
           - chroma-onnx-models.s3.amazonaws.com
+          # Since v15 the non-interactive installer ends by asking cmem.ai for
+          # an optional sign-in link. Without this entry that request is blocked.
+          - cmem.ai
       runtime:
         allow:
           - chroma-onnx-models.s3.amazonaws.com
