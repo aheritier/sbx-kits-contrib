@@ -8,7 +8,7 @@ kind: mixin
 # The kit's own version, not the version of anything it installs: it is the
 # tag this kit publishes under, and the fallback that versions an unversioned
 # provide at publish. Bump it when this kit's declarations change.
-version: "1.0.0"
+version: "1.0.1"
 
 # OpenSSH is the whole mechanism here, on both ends of it: the shipped
 # ssh-signing-key-command runs `ssh-add -L` against the forwarded agent, and
@@ -30,6 +30,12 @@ requires: ["deb/openssh-client"]
 # authenticated `gh` CLI are both present, so that one API host is required.
 
 capabilities:
+  - type: com.docker.sandbox/ssh-agent@1
+    config:
+      phase: runtime
+      unrestricted: false
+      sign: [git]
+
   - type: com.docker.sandbox/network-policy@1
     config:
       runtime:
