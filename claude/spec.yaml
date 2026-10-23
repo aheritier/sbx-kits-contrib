@@ -9,7 +9,7 @@ name: claude
 # Published as the vnd.docker.sandbox.kit.version OCI annotation at pack time,
 # and `scripts/check-release-tag.sh` refuses a `claude/vX.Y.Z` tag that
 # disagrees with it. Bump here first, then tag.
-version: "1.0.0"
+version: "1.0.1"
 displayName: Claude Code
 description: Anthropic's Claude Code, with API-key and subscription sign-in both resolved by the sandbox proxy.
 sandbox:
@@ -262,6 +262,7 @@ setup:
         printf '%s\n' "{
           \"bypassPermissionsModeAccepted\": true,
           \"hasCompletedOnboarding\": true,
+          \"hasSeenAutoDefaultNudge\": true,
           \"projects\": { $projects }
         }" > /home/agent/.claude.json
         chown agent:agent /home/agent/.claude.json
