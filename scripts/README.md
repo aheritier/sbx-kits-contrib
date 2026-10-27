@@ -142,6 +142,27 @@ Note that `<version>` is not an immutable tag. The nightly rebuild re-pushes it
 over fresh upstream content, which is the point of the nightly — pin a digest,
 not a version, if you need the bytes to hold still.
 
+## `verify-kit-image.sh`: is the built image launchable?
+
+Builds a `kind: workload` kit for one platform (`VERIFY_PLATFORM`, default `linux/amd64`) into the local daemon and checks
+the image config, as the image's own user: the launch binary (ENTRYPOINT, else
+CMD) resolves on PATH (or is an absolute path a `path:` entry in the kit's
+descriptor writes), the user is set and not root, the
+`com.docker.sandboxes.flavor` label equals the kit name, and a
+`start-docker=true` label is backed by `dockerd`, `docker` and `containerd`. The
+kit frontend copies the recipe's image config as-is and checks none of this.
+
+```bash
+scripts/verify-kit-image.sh claude                    # build, check, remove the image
+IMAGE=myimage:tag scripts/verify-kit-image.sh claude  # check an existing image
+```
+
+Every failed assertion prints one `FAIL <kit>: ...` line with the observed value,
+and the script exits 1 after running all of them. A `kind: mixin` kit is skipped
+(exit 0); any other `kind` is a failure. `BUILDER`, `CACHE_FROM` and `NO_CACHE` are passed to buildx as in
+`publish-kit.sh`; `KIT_ROOT` overrides the directory holding `<kit>/<kit>.yaml`.
+`publish-one-kit.yml` runs it before publishing, on pull requests too.
+
 ## `install-sbx.sh` — install the sbx CLI
 
 ```bash

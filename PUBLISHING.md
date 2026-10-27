@@ -95,6 +95,23 @@ build of the same source could resolve a different base image or a
 different upstream release, and the two tags would then advertise
 different bits — and different attestations — for one commit.
 
+## Build order
+
+`shell` and `shell-docker` are bases. Both build on DHI images and never
+on each other, so they build first and in parallel; a base built `FROM`
+another base would not be ordered after it. A kit builds on a base when a
+`*.dockerfile` in its directory has a `FROM` or `ARG BASE_IMAGE=` line
+naming `sbx/shell` or `sbx/shell-docker`.
+
+On pushes and the nightly, a base being built also rebuilds every kit
+that builds on it, after it, and a kit waits only for the base it uses. A
+base's whole publish job, Hub page sync included, must succeed for its
+dependents to run. A failed base skips those kits; kits that do not build
+on a base are unaffected. Pull requests build only what changed,
+as dry runs, so a dependent in a pull request builds against the base
+already published. A release (`release-kit.yml`) does not move `latest`,
+so it does not rebuild dependents.
+
 ## What publishing derives
 
 The frontend does real work between the authored descriptor and the
@@ -342,7 +359,7 @@ logos were copied from the v2 repositories by hand with the same script. See
 
 ## Pre-publish verification
 
-Two layers, and they check different things.
+Three layers, and they check different things.
 
 **The frontend**, during the build, judges the authored descriptor:
 strict decoding, the capability config schemas, args and their patterns,
@@ -367,7 +384,17 @@ kit-tck validate --layout /tmp/k 1.4.2
 
 The last argument is the **tag alone**, not `my-kit:1.4.2`.
 
-Neither layer can see whether the kit *works*. A mixin whose installer
+**`scripts/verify-kit-image.sh`**, against the built image, judges what
+the frontend copies as-is from the recipe. For a `kind: workload` kit it
+asserts that the launch command resolves on `PATH` (or is an absolute path
+a `path:` entry in the kit's descriptor writes), that the image sets a
+non-root user, that the `com.docker.sandboxes.flavor` label equals the
+kit name, and that `start-docker=true` comes with `dockerd`, `docker` and
+`containerd` on `PATH`. Mixins are skipped. It runs before every publish,
+dry runs on pull requests included. Run it locally with
+`scripts/verify-kit-image.sh <kit>`.
+
+None of them can see whether the kit *works*. A mixin whose installer
 relocated a launcher but not its payload builds, conforms, and ships a
 dangling symlink; only composing it onto a base and running the tool
 catches that. See [Verifying locally](./README.md#verifying-locally).
