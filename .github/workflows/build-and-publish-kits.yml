@@ -43,12 +43,12 @@ name: Build and publish kits
 #   * Two kits are BASES: `shell` and `shell-docker`, each built from its own
 #     upstream template and published as docker.io/sbx/shell and
 #     docker.io/sbx/shell-docker. A kit builds on a base when any
-#     `<kit>/*.dockerfile` has a `FROM` or `ARG BASE_IMAGE=` line naming
-#     `<namespace>/<base>`. The jobs below build the bases first, then the kits
-#     built on them, each after only the base it uses; every other kit runs
-#     alongside. On a publishing run (anything
-#     but a pull request) a base being built also rebuilds the kits found that
-#     way, by grep rather than a list. Pull requests build only what changed.
+#     `<kit>/*.dockerfile` names it (scripts/kit-dependents.sh has the exact
+#     rules). The jobs below build the bases first, then the kits built on
+#     them, each after only the base it uses; every other kit runs alongside.
+#     On a publishing run (anything but a pull request) a base being built also
+#     rebuilds the kits found that way, not a list. Pull requests build only
+#     what changed.
 #
 # The frontend validates the descriptor during the build but copies the
 # recipe's image config as-is, so publish-one-kit.yml runs
@@ -255,12 +255,13 @@ jobs:
           # calls produces no builds, so the publish job does not run at all —
           # not even as a dry run — and the PR that changes the publishing
           # logic is the one PR that never exercises it.
-          shared_filters=$(printf 'shared:\n%s\n%s\n%s\n%s\n%s\n%s\n%s\n%s' \
+          shared_filters=$(printf 'shared:\n%s\n%s\n%s\n%s\n%s\n%s\n%s\n%s\n%s' \
             '  - ".github/workflows/build-and-publish-kits.yml"' \
             '  - ".github/workflows/publish-one-kit.yml"' \
             '  - ".github/workflows/release-kit.yml"' \
             '  - "scripts/check-kit-name.sh"' \
             '  - "scripts/discover-kits.sh"' \
+            '  - "scripts/kit-dependents.sh"' \
             '  - "scripts/kit-version.sh"' \
             '  - "scripts/publish-kit.sh"' \
             '  - "scripts/verify-kit-image.sh"')
@@ -354,27 +355,10 @@ jobs:
           kits="${kits:-[]}"
           echo "Changed: ${kits}"
 
-          # Kits whose recipe builds on a base, as a JSON array. Any
-          # `<kit>/*.dockerfile` counts, since a kit may carry several recipe
-          # files. Case-insensitive, with leading whitespace, an optional
-          # `--platform=...` on FROM, an optional quote on the ARG value and an
-          # optional registry prefix (`index.docker.io/` also counts when the registry is
-          # docker.io). The trailing group stops `<ns>/shell` matching
-          # `<ns>/shell-docker` or `<ns>/shell-credentials`. Registry and
-          # namespace are read from the environment, as publishing does. `|| true`
-          # keeps a grep with no match from failing the step under pipefail.
-          # Only discovered kits are returned: a stray directory with a
-          # dockerfile is not a kit and must not become a matrix leg.
-          dependents() {
-            local base="$1" ns reg found
-            ns=$(printf '%s' "${IMAGE_NAMESPACE}" | sed 's/[][\.^$*+?(){}|/]/\\&/g')
-            reg=$(printf '%s' "${REGISTRY}" | sed 's/[][\.^$*+?(){}|/]/\\&/g')
-            if [ "${REGISTRY}" = "docker.io" ]; then reg="(index\\.)?${reg}"; fi
-            found=$({ grep -l -i -E "^[[:space:]]*(ARG[[:space:]]+BASE_IMAGE=[\"']?|FROM[[:space:]]+(--platform=[^[:space:]]+[[:space:]]+)?)(${reg}/)?${ns}/${base}(:|@|\"|'|[[:space:]]|\$)" -- */*.dockerfile || true; } \
-              | xargs -r -n1 dirname | sort -u | jq -R . | jq -sc .)
-            jq -nc --argjson d "${found:-[]}" --argjson all "${all}" \
-              '$d | map(select(. as $k | $all | index($k)))'
-          }
+          # Kits whose recipe builds on a base come from
+          # scripts/kit-dependents.sh, which documents the matching rules.
+          # REGISTRY and IMAGE_NAMESPACE reach it from the workflow env.
+          dependents() { ./scripts/kit-dependents.sh "$1"; }
           has_kit() { echo "$1" | jq -e --arg k "$2" 'index($k) != null' >/dev/null; }
 
           # Propagation. A kit built on a base would otherwise keep running on

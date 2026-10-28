@@ -101,7 +101,8 @@ different bits — and different attestations — for one commit.
 on each other, so they build first and in parallel; a base built `FROM`
 another base would not be ordered after it. A kit builds on a base when a
 `*.dockerfile` in its directory has a `FROM` or `ARG BASE_IMAGE=` line
-naming `sbx/shell` or `sbx/shell-docker`.
+naming `sbx/shell` or `sbx/shell-docker`; `scripts/kit-dependents.sh <base>`
+lists them.
 
 On pushes and the nightly, a base being built also rebuilds every kit
 that builds on it, after it, and a kit waits only for the base it uses. A

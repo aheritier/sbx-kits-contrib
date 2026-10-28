@@ -163,6 +163,23 @@ and the script exits 1 after running all of them. A `kind: mixin` kit is skipped
 `publish-kit.sh`; `KIT_ROOT` overrides the directory holding `<kit>/<kit>.yaml`.
 `publish-one-kit.yml` runs it before publishing, on pull requests too.
 
+## `kit-dependents.sh`: which kits build on a base?
+
+Prints, as a JSON array, the discovered kits that have a `<kit>/*.dockerfile`
+building `FROM` or `ARG BASE_IMAGE=` on `<registry>/<namespace>/<base>`.
+`build-and-publish-kits.yml` uses it to rebuild dependents after their base.
+
+```bash
+scripts/kit-dependents.sh shell          # for example: ["claude","goose"]
+REGISTRY=ghcr.io scripts/kit-dependents.sh shell-docker
+```
+
+`REGISTRY` and `IMAGE_NAMESPACE` default as in `publish-kit.sh`; `KIT_ROOT`
+overrides the directory scanned. The header of the script lists the matching
+rules. The output is `[]` when nothing matches, and the exit code is 2 for a
+usage error and 1 when discovery refuses the root. Tests run with `go test ./scripts/...`, against fixtures in
+`scripts/testdata/kit-dependents/`.
+
 ## `install-sbx.sh` — install the sbx CLI
 
 ```bash
